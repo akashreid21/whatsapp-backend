@@ -15,6 +15,7 @@ let client = null;
 let isReady = false;
 let isInitializing = false;
 let latestQR = '';
+let latestQRImage = '';
 let tasks = [];
 
 // Task extraction keywords
@@ -92,11 +93,19 @@ function initializeWhatsAppClient() {
   });
 
   // QR Code generation
-  client.on('qr', (qr) => {
+  client.on('qr', async (qr) => {
     console.log('========================================');
     console.log('QR Code received!');
     console.log('========================================');
     latestQR = qr;
+
+    // Generate QR code as base64 image
+    try {
+      latestQRImage = await qrcode.toDataURL(qr);
+      console.log('QR code image generated successfully');
+    } catch (error) {
+      console.error('Error generating QR code image:', error);
+    }
   });
 
   // Client ready
@@ -139,6 +148,15 @@ function initializeWhatsAppClient() {
   client.on('disconnected', (reason) => {
     console.log('WhatsApp client disconnected:', reason);
     isReady = false;
+    isInitializing = false;
+    client = null;
+    latestQR = '';
+    latestQRImage = '';
+  });
+
+  // Handle errors
+  client.on('error', (error) => {
+    console.error('WhatsApp client error:', error);
   });
 }
 
@@ -202,6 +220,7 @@ app.get('/api/whatsapp/connect', (req, res) => {
 app.get('/api/whatsapp/qr', (req, res) => {
   res.json({
     qr: latestQR,
+    qrImage: latestQRImage,
     isInitializing: isInitializing
   });
 });
@@ -250,7 +269,27 @@ app.listen(PORT, () => {
 process.on('SIGINT', async () => {
   console.log('Shutting down gracefully...');
   if (client) {
-    await client.destroy();
+    try {
+      await client.destroy();
+    } catch (error) {
+      console.error('Error destroying client:', error);
+    }
   }
   process.exit(0);
+});
+
+// Handle uncaught exceptions (prevents crash from WhatsApp logout errors)
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+  // Don't exit process - keep server running
+  isReady = false;
+  isInitializing = false;
+  client = null;
+  latestQR = '';
+  latestQRImage = '';
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled rejection at:', promise, 'reason:', reason);
+  // Don't exit process - keep server running
 });
